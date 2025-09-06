@@ -2,12 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from memory_mlp import MemoryMLP
 
 # Neural Memory implementation
 class NeuralMemory(nn.Module):
-    def __init__(self):
+    def __init__(self, dim, hidden, depth):
         super().__init__()
-        pass
+        self.dim = dim
+        self.memory = MemoryMLP(dim, hidden, depth)
 
     def retrieve(self):
         pass

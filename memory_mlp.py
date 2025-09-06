@@ -9,10 +9,17 @@ class MemoryMLP(nn.Module):
         super().__init__()
         layers = []
         in_dim = dim
+
+        def make_linear(in_dim, out_dim):
+            linear = nn.Linear(in_dim, out_dim, bias=False)
+            nn.init.xavier_uniform_(linear.weight)
+            return linear
+        
         for i in range(depth - 1):
-            layers += [nn.Linear(in_dim, hidden), nn.SiLU()]
-            in_dim = hidden
-        layers += [nn.Linear(in_dim, dim)]
+            layers += [make_linear(in_dim, dim), nn.SiLU()]
+            in_dim = dim
+            
+        layers += [make_linear(in_dim, dim)]
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
