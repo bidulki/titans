@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-
 from neural_memory import NeuralMemory
 from titan_attention import TitanAttention
 

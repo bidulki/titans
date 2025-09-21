@@ -1,9 +1,9 @@
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-# DepthwiseSeperableConv1d
+# 4.4 Architectural Details - 1D depthwise-separable convolution
 class DepthwiseSeperableConv1d(nn.Module):
     def __init__(self, input_dim, output_dim):
         super().__init__()
@@ -24,18 +24,15 @@ class DepthwiseSeperableConv1d(nn.Module):
 class TitanAttention(nn.Module):
     def __init__(self, dim, num_heads, dropout):
         super().__init__()
-        if dim % num_heads != 0:
-            raise ValueError("dim must be divisible by num_heads")
+        # dim = num_heads * head_dim
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
 
-        # Projections for Q, K, V
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = nn.Linear(dim, dim)
 
-        # Depthwise separable convolutions
         self.q_conv = DepthwiseSeperableConv1d(dim, dim)
         self.k_conv = DepthwiseSeperableConv1d(dim, dim)
         self.v_conv = DepthwiseSeperableConv1d(dim, dim)
@@ -46,21 +43,19 @@ class TitanAttention(nn.Module):
     def forward(self, x, mask=None):
         batch_size, seq_len, dim = x.shape
 
-        # Project and apply SiLU activation
+        # 4.4 Architectural Details - SiLU
         q = F.silu(self.q_proj(x))
         k = F.silu(self.k_proj(x))
         v = F.silu(self.v_proj(x))
 
-        # Apply depthwise seperable conv1d
         q = self._apply_conv(q, self.q_conv)
         k = self._apply_conv(k, self.k_conv)
         v = self._apply_conv(v, self.v_conv)
 
-        # L2 normalize queries and keys
+        # 4.4 Architectural Details - l2-norm
         q = F.normalize(q, p=2, dim=-1)
         k = F.normalize(k, p=2, dim=-1)
 
-        # Reshape for multi-head attention
         q = q.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         k = k.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)

@@ -1,11 +1,8 @@
-from collections import OrderedDict
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
-from dataclasses import dataclass
 from memory_mlp import MemoryMLP
-from utils import make_linear, ParameterVectorizer
+from utils import make_linear
 
 # Neural Memory implementation
 class NeuralMemory(nn.Module):
@@ -24,6 +21,7 @@ class NeuralMemory(nn.Module):
         self.value_proj = make_linear(dim, dim)
         self.query_proj = make_linear(dim, dim)
         self.surprise = {}
+        
         self.alpha = 0.001
         self.eta = 0.60
         self.theta = 0.05
