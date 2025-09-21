@@ -3,7 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
-
 # DepthwiseSeperableConv1d
 class DepthwiseSeperableConv1d(nn.Module):
     def __init__(self, input_dim, output_dim):
