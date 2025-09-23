@@ -1,62 +1,55 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from memory_mlp import MemoryMLP
+
+from memory_mlp import MemoryMLP, MemoryState
 from utils import make_linear
+
 
 # Neural Memory implementation
 class NeuralMemory(nn.Module):
-    def __init__(
-        self,
-        dim, 
-        memory_hidden_dim, 
-        memory_depth
-    ):
+    def __init__(self, dim, memory_hidden_dim, memory_depth):
         super().__init__()
         self.dim = dim
 
         self.memory = MemoryMLP(dim, memory_hidden_dim, memory_depth)
-        
-        self.key_proj = make_linear(dim, dim)
-        self.value_proj = make_linear(dim, dim)
-        self.query_proj = make_linear(dim, dim)
-        self.surprise = {}
-        
-        self.alpha = 0.001
-        self.eta = 0.60
-        self.theta = 0.05
 
-    def retrieve(self, x):
-        # do normalize or not?
-        query = self.query_proj(x)
-        return self.memory(query)
-    
-    def update(self, x):
-        # 3.1 Long-term Memory equation(11)
-        key = F.normalize(self.key_proj(x), p=2, dim=-1)
-        value = self.value_proj(x)
-        
-        # 3.1 Long-term Memory equation(12)
-        residuals = self.memory(key)-value
-        loss = residuals.pow(2).mean(dim=-1).sum()
+        self.Wk = make_linear(dim, dim)
+        self.Wv = make_linear(dim, dim)
 
-        grads = torch.autograd.grad(loss, self.memory.parameters())
-        updated_params = {}
+        self.hyper = nn.Linear(dim, 3)
 
-        for (name, param), grad in zip(self.memory.named_parameters(), grads):
-            if self.surprise.get(name, None) is None:
-                self.surprise[name] = torch.zeros_like(grad)
-               
-            # 3.1 Long-term Memory equation(14)
-            self.surprise[name] = self.surprise[name] * self.eta - self.theta * grad
-            # 3.1 Long-term Memory equation(13)
-            updated_params[name] = (1-self.alpha) * param.data + self.surprise[name]
-            param.data = updated_params[name]
+        # self.alpha = 0.001
+        # self.eta = 0.60
+        # self.theta = 0.05
 
-        return loss.item(), updated_params
+    def _hyper(self, x: torch.Tensor):
+        h = self.hyper(x)
+        eta = torch.sigmoid(h[:, 0:1]).unsqueeze(-1)
+        alpha = torch.sigmoid(h[:, 1:2]).unsqueeze(-1)
+        theta = (F.softplus(h[:, 2:3]) * 1e-2 + 1e-6).unsqueeze(-1)
+        return eta, alpha, theta
 
+    def forward(
+        self, x: torch.Tensor, state: MemoryState | None = None
+    ) -> tuple[torch.Tensor, MemoryState]:
+        B, L, _ = x.shape
+        device = x.device
+        if state is None:
+            state = self.memory.init_state(B, device=device)
 
+        y_list = []
+        current_state = state
+        for t in range(L):
+            x = x[:, t, :]
+            k = self.Wk(x)
+            v = self.Wv(x)
+            eta, alpha, theta = self._hyper(x)
 
-        
+            v_hat, current_state, _loss = self.memory.step(
+                k=k, v=v, state=current_state, eta=eta, alpha=alpha, theta=theta
+            )
+            y_list.append(v_hat)
 
-
+        y = torch.stack(y_list, dim=1)
+        return (y, current_state)
