@@ -16,6 +16,7 @@ class NeuralMemory(nn.Module):
 
         self.Wk = make_linear(dim, dim)
         self.Wv = make_linear(dim, dim)
+        self.Wq = make_linear(dim, dim)
 
         self.hyper = nn.Linear(dim, 3)
 
@@ -41,8 +42,8 @@ class NeuralMemory(nn.Module):
         y_list = []
         for t in range(L):
             x_t = x[:, t, :]
-            k_t = self.Wk(x_t)
-            y_t = self.memory.retrieve(k_t, state)
+            q_t = self.Wq(x_t)
+            y_t = self.memory.retrieve(q_t, state)
             y_list.append(y_t)
 
         y = torch.stack(y_list, dim=1)
