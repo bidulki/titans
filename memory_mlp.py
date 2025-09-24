@@ -64,7 +64,15 @@ class MemoryMLP(nn.Module):
     def _act_backward(self, x: torch.Tensor) -> torch.Tensor:
         return gelu_bakward(x) if self.activation == "gelu" else silu_backward(x)
 
-    def step(
+    def retrieve(self, k: torch.Tensor, state: MemoryState):
+        h = k
+        for i in range(len(state.W)):
+            W, b = state.W[i].detach(), state.b[i].detach()
+            z = torch.einsum("bi,bij->bj", h, W) + b.squeeze(1)
+            h = self._act(z) if i < self.depth - 1 else z
+        return h
+
+    def update(
         self,
         k: torch.Tensor,
         v: torch.Tensor,
@@ -73,10 +81,6 @@ class MemoryMLP(nn.Module):
         alpha: torch.Tensor,
         theta: torch.Tensor,
     ) -> tuple[torch.Tensor, MemoryState, torch.Tensor]:
-        """
-        Read + Update 수행
-        """
-
         # cache for backward
         h_list: list[torch.Tensor] = []
         z_list: list[torch.Tensor] = []
@@ -98,8 +102,8 @@ class MemoryMLP(nn.Module):
 
         # backward
         delta = 2.0 * diff
-        dW_list: list[torch.Tensor] = [None] * len(state.W)
-        db_list: list[torch.Tensor] = [None] * len(state.b)
+        dW_list: list[torch.Tensor] = [torch.empty(0)] * len(state.W)
+        db_list: list[torch.Tensor] = [torch.empty(0)] * len(state.b)
 
         h_prev = h_list[-2]
         dW_list[-1] = torch.einsum("bi,bj->bij", h_prev, delta)

@@ -1,4 +1,5 @@
 from typing import Literal
+
 import torch
 import torch.nn as nn
 
@@ -24,15 +25,18 @@ def make_parameter(
 
 
 # from TTT pytorch
-def gelu_bakward(x: torch.Tensor) -> torch.Tensor:
-    tanh_out = torch.tanh(0.79788456 * x * (1 + 0.044715 * x * x))
-    ff = 0.5 * x * (
-        (1 - tanh_out * tanh_out) * (0.79788456 + 0.1070322243 * x * x)
-    ) + 0.5 * (1 + tanh_out)
-    return ff
+@torch.jit.script
+def gelu_backward(x: torch.Tensor) -> torch.Tensor:
+    c0 = 0.79788456  # sqrt(2/pi)
+    c1 = 0.044715
+    x3 = x * x * x
+    t = torch.tanh(c0 * (x + c1 * x3))
+    dt = (1 - t * t) * (c0 * (1 + 3 * c1 * x * x))
+    return 0.5 * (1 + t) + 0.5 * x * dt
 
 
-# SiLU (Swish) backward: d/dx [x * sigmoid(x)] = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+@torch.jit.script
 def silu_backward(x: torch.Tensor) -> torch.Tensor:
+    """SiLU (Swish) backward: d/dx [x * sigmoid(x)] = sigmoid(x) * (1 + x * (1 - sigmoid(x)))"""
     s = torch.sigmoid(x)
     return s * (1 + x * (1 - s))

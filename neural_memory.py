@@ -30,7 +30,25 @@ class NeuralMemory(nn.Module):
         theta = (F.softplus(h[:, 2:3]) * 1e-2 + 1e-6).unsqueeze(-1)
         return eta, alpha, theta
 
-    def forward(
+    def retrieve(
+        self, x: torch.Tensor, state: MemoryState | None = None
+    ) -> torch.Tensor:
+        B, L, _ = x.shape
+        device = x.device
+        if state is None:
+            state = self.memory.init_state(B, device=device)
+
+        y_list = []
+        for t in range(L):
+            x_t = x[:, t, :]
+            k_t = self.Wk(x_t)
+            y_t = self.memory.retrieve(k_t, state)
+            y_list.append(y_t)
+
+        y = torch.stack(y_list, dim=1)
+        return y
+
+    def update(
         self, x: torch.Tensor, state: MemoryState | None = None
     ) -> tuple[torch.Tensor, MemoryState]:
         B, L, _ = x.shape
@@ -46,7 +64,7 @@ class NeuralMemory(nn.Module):
             v = self.Wv(x)
             eta, alpha, theta = self._hyper(x)
 
-            v_hat, current_state, _loss = self.memory.step(
+            v_hat, current_state, _loss = self.memory.update(
                 k=k, v=v, state=current_state, eta=eta, alpha=alpha, theta=theta
             )
             y_list.append(v_hat)
