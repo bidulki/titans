@@ -38,15 +38,10 @@ class NeuralMemory(nn.Module):
         device = x.device
         if state is None:
             state = self.memory.init_state(B, device=device)
+            
+        q = self.Wq(x)
+        y = self.memory.retrieve(q, state)
 
-        y_list = []
-        for t in range(L):
-            x_t = x[:, t, :]
-            q_t = self.Wq(x_t)
-            y_t = self.memory.retrieve(q_t, state)
-            y_list.append(y_t)
-
-        y = torch.stack(y_list, dim=1)
         return y
 
     def update(
