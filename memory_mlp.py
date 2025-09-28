@@ -50,8 +50,8 @@ class MemoryMLP(nn.Module):
 
         W, b, SW, Sb = [], [], [], []
         for pW, pb in zip(self._W0, self._b0):
-            Wi = pW.to(device).unsqueeze(0).expand(batch_size, -1, -1).clone()
-            bi = pb.to(device).unsqueeze(0).expand(batch_size, -1, -1).clone()
+            Wi = pW.to(device).unsqueeze(0).expand(batch_size, -1, -1).contiguous()
+            bi = pb.to(device).unsqueeze(0).expand(batch_size, -1, -1).contiguous()
             W.append(Wi)
             b.append(bi)
             SW.append(torch.zeros_like(Wi))
@@ -64,8 +64,8 @@ class MemoryMLP(nn.Module):
     def _act_backward(self, x: torch.Tensor) -> torch.Tensor:
         return gelu_bakward(x) if self.activation == "gelu" else silu_backward(x)
 
-    def retrieve(self, k: torch.Tensor, state: MemoryState):
-        h = k
+    def retrieve(self, q: torch.Tensor, state: MemoryState):
+        h = q
         for i in range(len(state.W)):
             W, b = state.W[i].detach(), state.b[i].detach()
             z = torch.einsum("bi,bij->bj", h, W) + b.squeeze(1)
