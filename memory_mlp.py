@@ -112,10 +112,7 @@ class MemoryMLP(nn.Module):
         # backward
         delta = 2.0 * diff  # dL/d(v_hat)
         dW_list: list[torch.Tensor] = [torch.empty(0, device=k.device)] * len(state.W)
-        if self.use_bias:
-            db_list: list[torch.Tensor] = [torch.empty(0, device=k.device)] * len(
-                state.W
-            )
+        db_list: list[torch.Tensor] = [torch.empty(0, device=k.device)] * len(state.W)
 
         h_prev = h_list[-2]
         dW_list[-1] = torch.einsum("bi,bj->bij", h_prev, delta)

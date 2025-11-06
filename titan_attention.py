@@ -3,23 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-# 4.4 Architectural Details - 1D depthwise-separable convolution
-class DepthwiseSeperableConv1d(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super().__init__()
-        self.depthwise = nn.Conv1d(
-            input_dim, 
-            input_dim, 
-            kernel_size=3, 
-            padding=1, 
-            groups=input_dim
-        )
-        self.pointwise = nn.Conv1d(input_dim, output_dim, kernel_size=1)
-    
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        return x
+from depthwise_separable_conv import CausalDSC1d
+
 
 class TitanAttention(nn.Module):
     def __init__(self, dim, num_heads, dropout):
@@ -33,13 +18,13 @@ class TitanAttention(nn.Module):
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = nn.Linear(dim, dim)
 
-        self.q_conv = DepthwiseSeperableConv1d(dim, dim)
-        self.k_conv = DepthwiseSeperableConv1d(dim, dim)
-        self.v_conv = DepthwiseSeperableConv1d(dim, dim)
+        self.q_conv = CausalDSC1d(dim, dim)
+        self.k_conv = CausalDSC1d(dim, dim)
+        self.v_conv = CausalDSC1d(dim, dim)
 
         self.out_proj = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
-    
+
     def forward(self, x, mask=None):
         batch_size, seq_len, dim = x.shape
 
@@ -56,9 +41,15 @@ class TitanAttention(nn.Module):
         q = F.normalize(q, p=2, dim=-1)
         k = F.normalize(k, p=2, dim=-1)
 
-        q = q.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        q = q.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )
+        k = k.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )
+        v = v.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )
 
         # Compute attention scores
         attn = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
@@ -67,7 +58,7 @@ class TitanAttention(nn.Module):
             # Properly reshape mask for broadcasting
             # mask shape: [batch_size, seq_len] -> [batch_size, 1, 1, seq_len]
             mask = mask.unsqueeze(1).unsqueeze(2)
-            attn = attn.masked_fill(mask == 0, float('-inf'))
+            attn = attn.masked_fill(mask == 0, float("-inf"))
 
         attn = F.softmax(attn, dim=-1)
         attn = self.dropout(attn)
@@ -76,8 +67,7 @@ class TitanAttention(nn.Module):
 
         return self.out_proj(out)
 
-    def _apply_conv(self, tensor, conv: DepthwiseSeperableConv1d):
+    def _apply_conv(self, tensor, conv: CausalDSC1d):
         conv_input = tensor.transpose(1, 2)
         conv_output = conv(conv_input)
         return conv_output.transpose(1, 2)
-

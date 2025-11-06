@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from depthwise_separable_conv import CausalDSC1d
 from memory_mlp import MemoryMLP, MemoryState
 from utils import make_linear
 
 
 # Neural Memory implementation
 class NeuralMemory(nn.Module):
-    def __init__(self, dim, memory_hidden_dim, memory_depth):
+    def __init__(self, dim: int, memory_hidden_dim: int, memory_depth: int):
         super().__init__()
         self.dim = dim
 
@@ -20,9 +21,12 @@ class NeuralMemory(nn.Module):
 
         self.hyper = nn.Linear(dim, 3)
 
-        # self.alpha = 0.001
-        # self.eta = 0.60
-        # self.theta = 0.05
+        self.conv_q = CausalDSC1d(dim, dim)
+        self.conv_k = CausalDSC1d(dim, dim)
+        self.conv_v = CausalDSC1d(dim, dim)
+
+    def _l2norm(self, x: torch.Tensor, eps: float = 1e-6):
+        return F.normalize(x, dim=-1, eps=eps)
 
     def _hyper(self, x: torch.Tensor):
         h = self.hyper(x)
@@ -38,8 +42,9 @@ class NeuralMemory(nn.Module):
         device = x.device
         if state is None:
             state = self.memory.init_state(B, device=device)
-            
+
         q = self.Wq(x)
+        q = self.conv_q(q)
         y = self.memory.retrieve(q, state)
 
         return y
@@ -57,7 +62,9 @@ class NeuralMemory(nn.Module):
         for t in range(L):
             x = x[:, t, :]
             k = self.Wk(x)
+            k = self.conv_k(k)
             v = self.Wv(x)
+            v = self.conv_v(v)
             eta, alpha, theta = self._hyper(x)
 
             v_hat, current_state, _loss = self.memory.update(
