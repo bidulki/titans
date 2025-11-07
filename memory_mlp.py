@@ -81,16 +81,16 @@ class MemoryMLP(nn.Module):
         return gelu_backward(x) if self.activation == "gelu" else silu_backward(x)
 
     def retrieve(self, q: torch.Tensor, state: MemoryState):
-        h = q  # (B, d)
+        h = q  # (B, c, d)
         for i in range(self.depth):
             W = state.W[i]  # (B, in, out)
-            z = torch.einsum("bi,bij->bj", h, W)  # (B, out)
+            z = torch.einsum("bci,bij->bcj", h, W)  # (B, c, out)
             if self.use_bias:
-                z = z + state.b[i].squeeze(1)  # (B, out)
+                z = z + state.b[i]  # (B, c, out)
             h = self._act(z) if i < self.depth - 1 else z
         return h
 
-    def update(
+    def _update_step(
         self,
         k: torch.Tensor,
         v: torch.Tensor,
@@ -178,3 +178,38 @@ class MemoryMLP(nn.Module):
 
         new_state = MemoryState(W=new_W, b=new_b, SW=new_SW, Sb=new_Sb)
         return v_hat, new_state, loss
+
+    def update(
+        self,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        state: MemoryState,
+        eta: torch.Tensor,
+        alpha: torch.Tensor,
+        theta: torch.Tensor,
+    ) -> tuple[torch.Tensor, MemoryState, torch.Tensor]:
+        B, c, _ = k.shape
+
+        v_hat_list = []
+        loss_list = []
+
+        # 아직은 토큰 단위 업데이트, 곧 청크 내 associative scan + 병렬화 적용
+        cur_state = state
+        for t in range(c):
+            k_t = k[:, t, :]
+            v_t = v[:, t, :]
+
+            eta_t = eta[:, t]
+            alpha_t = alpha[:, t]
+            theta_t = theta[:, t]
+
+            v_hat_t, cur_state, loss_t = self._update_step(
+                k=k_t, v=v_t, state=cur_state, eta=eta_t, alpha=alpha_t, theta=theta_t
+            )
+            v_hat_list.append(v_hat_t.unsqueeze(1))
+            loss_list.append(loss_t)
+
+        v_hat = torch.cat(v_hat_list, dim=1)
+        loss = torch.stack(loss_list, dim=0).mean()
+
+        return v_hat, cur_state, loss
