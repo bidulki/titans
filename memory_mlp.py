@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import torch
 import torch.nn as nn
@@ -113,34 +113,35 @@ class MemoryMLP(nn.Module):
         new_Sb: list[torch.Tensor] = []
 
         for i in range(self.depth):
-            W_i = state.W[i]
-            SW_i = state.SW[i]
+            W0 = state.W[i].unsqueeze(1)  # (B, 1, in, out)
+            SW0 = state.SW[i].unsqueeze(1)  # (B, 1, in, out)
+            uW = dW_tokens[i]  # (B, c, in, out)
+
+            kappa = eta.cumprod(dim=1)
+
+            RW = ((theta / (kappa + 1e-8)) * uW).cumsum(dim=1)
+            SW = kappa * (SW0 - RW)
+
+            one_minus_alpha = cast(torch.Tensor, 1.0 - alpha)
+            beta = one_minus_alpha.cumprod(dim=1)
+
+            W = beta * (W0 + (SW / (beta + 1e-8)).cumsum(dim=1))
+
+            new_W.append(W[:, -1, :, :])  # (B, in, out)
+            new_SW.append(SW[:, -1, :, :])  # (B, in, out)
 
             if self.use_bias:
-                b_i = state.b[i]
-                Sb_i = state.Sb[i]
+                b0 = state.b[i].unsqueeze(1)  # (B, 1, 1, out)
+                Sb0 = state.Sb[i].unsqueeze(1)  # (B, 1, 1, out)
+                ub = db_tokens[i]  # (B, c, 1, out)
 
-            for t in range(c):
-                grad_W_t = dW_tokens[i][:, t, :, :]  # (B, in, out)
+                Rb = ((theta / (kappa + 1e-8)) * ub).cumsum(dim=1)
+                Sb = kappa * (Sb0 - Rb)
 
-                eta_t = eta[:, t]
-                alpha_t = alpha[:, t]
-                theta_t = theta[:, t]
+                b = beta * (b0 + (Sb / (beta + 1e-8)).cumsum(dim=1))
 
-                SW_i = eta_t * SW_i - theta_t * grad_W_t
-                W_i = (1.0 - alpha_t) * W_i + SW_i
-
-                if self.use_bias:
-                    grad_b_t = db_tokens[i][:, t, :, :]
-                    Sb_i = eta_t * Sb_i - theta_t * grad_b_t  # type: ignore
-                    b_i = (1.0 - alpha_t) * b_i + Sb_i  # type: ignore
-
-            new_W.append(W_i)
-            new_SW.append(SW_i)
-
-            if self.use_bias:
-                new_b.append(b_i)  # type: ignore
-                new_Sb.append(Sb_i)  # type: ignore
+                new_b.append(b[:, -1, :, :])  # (B, 1, out)
+                new_Sb.append(Sb[:, -1, :, :])  # (B, 1, out)
 
         new_state = MemoryState(W=new_W, b=new_b, SW=new_SW, Sb=new_Sb)
 
@@ -179,12 +180,10 @@ class MemoryMLP(nn.Module):
     ) -> tuple[list[torch.Tensor], list[torch.Tensor], torch.Tensor]:
         diff = v_hat - v
         loss = (diff * diff).mean()
-
-        delta = 2.0 * diff
+        delta = 2.0 * diff  # dL/d(v_hat)
 
         B, c, _ = k.shape
 
-        delta = 2.0 * diff  # dL/d(v_hat)
         dW_tokens: list[torch.Tensor] = [torch.empty(0, device=k.device)] * self.depth
         db_tokens: list[torch.Tensor] = (
             [torch.empty(0, device=k.device)] * self.depth if self.use_bias else []
@@ -200,7 +199,7 @@ class MemoryMLP(nn.Module):
 
         if self.depth > 1:
             W_last = state.W[last]  # (B, in, out)
-            delta = torch.einsum("bcj,bij->bcj", delta, W_last)  # (B, c, in)
+            delta = torch.einsum("bcj,bij->bci", delta, W_last)  # (B, c, in)
 
         for i in reversed(range(self.depth - 1)):
             z = z_list[i]
